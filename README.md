@@ -24,9 +24,9 @@ Si possono caricare i PDF di più campionati: le partite vengono raggruppate.
 
 ## Pubblicazione
 
-L'app è statica. Per pubblicarla su GitHub Pages: *Settings → Pages → Source:
-GitHub Actions*. Il workflow `.github/workflows/pages.yml` la pubblica a ogni push
-su `main`. Poi dal telefono apri l'indirizzo e scegli *Aggiungi a schermata Home*.
+L'app è statica ed è pubblicata con GitHub Pages dal branch `main` (cartella
+principale): **https://nicolagalassi.github.io/app_volley_csi/**. Ogni push su
+`main` la aggiorna. Dal telefono apri l'indirizzo e scegli *Aggiungi a schermata Home*.
 
 ## Sviluppo
 

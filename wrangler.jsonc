@@ -1,0 +1,17 @@
+// Pubblicazione su Cloudflare Workers (solo file statici, nessun codice server).
+// Prima di "wrangler deploy" serve "npm run build", che prepara la cartella dist/.
+// Dominio: https://fulgur.dalinar.dev
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fulgur",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "fulgur.dalinar.dev", "custom_domain": true }
+  ],
+  "workers_dev": true,
+  "preview_urls": true
+}

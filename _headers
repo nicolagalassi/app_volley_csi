@@ -1,0 +1,10 @@
+# Il service worker e la pagina vanno sempre ricontrollati, così gli
+# aggiornamenti dell'app arrivano subito sul telefono.
+/sw.js
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache

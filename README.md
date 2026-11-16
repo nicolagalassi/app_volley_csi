@@ -24,9 +24,22 @@ Si possono caricare i PDF di più campionati: le partite vengono raggruppate.
 
 ## Pubblicazione
 
-L'app è statica ed è pubblicata con GitHub Pages dal branch `main` (cartella
-principale): **https://nicolagalassi.github.io/app_volley_csi/**. Ogni push su
-`main` la aggiorna. Dal telefono apri l'indirizzo e scegli *Aggiungi a schermata Home*.
+### Cloudflare Workers — https://fulgur.dalinar.dev
+
+Configurazione in `wrangler.jsonc` (Worker `fulgur`, solo file statici, dominio
+personalizzato `fulgur.dalinar.dev`). `npm run build` copia in `dist/` i soli file
+dell'app; `_headers` evita che il telefono tenga versioni vecchie.
+
+Collegamento automatico (una volta sola), dalla dashboard Cloudflare:
+*Workers & Pages → Create → Import a repository* → `nicolagalassi/app_volley_csi`,
+branch `main`, **Build command** `npm run build`, **Deploy command** `npx wrangler deploy`.
+Da quel momento ogni push su `main` ripubblica l'app.
+
+A mano, da un computer: `npx wrangler login` e poi `npm run deploy`.
+
+### GitHub Pages — https://nicolagalassi.github.io/app_volley_csi/
+
+Pubblicata dal branch `main` (cartella principale), si aggiorna a ogni push.
 
 ## Sviluppo
 
@@ -35,6 +48,7 @@ npm install
 npm test                 # test del parser e della classifica
 npm run data             # rigenera data/campionati.json dal PDF in tests/fixtures
 npm start                # http://localhost:8080
+npm run build            # prepara dist/ per Cloudflare
 ```
 
 - `js/parser.js` — legge il PDF del CSI (posizioni del testo estratte con pdf.js)

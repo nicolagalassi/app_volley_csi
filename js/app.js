@@ -95,14 +95,16 @@ function dateBlock(m) {
   return `<div class="date"><div class="d">${d.getDate()}</div><div class="m">${MONTHS[d.getMonth()]}</div><div class="h">${esc(m.time || '')}</div></div>`;
 }
 
-function matchRow(m, { highlight = true } = {}) {
+// `focus` = squadra "in primo piano" (di default la mia): nome in grassetto ed
+// esito Vinta/Persa dal suo punto di vista.
+function matchRow(m, { highlight = true, focus = isMine } = {}) {
   const v = venueOf(m);
-  const mineGame = isMine(m.home) || isMine(m.away);
+  const mineGame = focus(m.home) || focus(m.away);
   const r = m.result;
-  const nameCls = (team, won) => ['name', isMine(team) ? 'mine' : '', won ? 'won' : ''].join(' ');
+  const nameCls = (team, won) => ['name', focus(team) ? 'mine' : '', won ? 'won' : ''].join(' ');
   let outcome = '';
   if (r && mineGame) {
-    const myWin = isMine(m.home) ? r.home > r.away : r.away > r.home;
+    const myWin = focus(m.home) ? r.home > r.away : r.away > r.home;
     outcome = `<span class="pill ${myWin ? 'v' : 'p'}">${myWin ? 'Vinta' : 'Persa'}</span>`;
   }
   const meta = [
@@ -329,7 +331,7 @@ function renderTable() {
           ${rows.map((r) => `
             <tr class="${isMine(r.team) ? 'mine' : ''}">
               <td>${r.pos}</td>
-              <td class="team" title="${esc(r.team)}">${esc(r.team)}</td>
+              <td class="team"><button class="team-link" data-team="${esc(r.team)}" title="Partite di ${esc(r.team)}">${esc(r.team)}</button></td>
               <td class="pts">${r.points}</td>
               <td>${r.played}</td><td>${r.won}</td><td>${r.lost}</td>
               <td>${r.setsWon}-${r.setsLost}</td>
@@ -338,40 +340,96 @@ function renderTable() {
         </tbody>
       </table>
     </div>
+    <p class="note">Tocca una squadra per vedere le sue partite.</p>
     <p class="note">Classifica calcolata dai ${playedCount} risultati del PDF del CSI (elaborato il ${fmtStamp(champ.generatedAt)}): 3 punti per il 3-0 e il 3-1, 2 punti a chi vince 3-2 e 1 a chi perde. Eventuali penalizzazioni non sono nel PDF: in caso di dubbio fa fede la <a href="${CSI_URL}" target="_blank" rel="noopener">classifica sul sito CSI</a>.</p>`;
 
+  el.querySelectorAll('[data-team]').forEach((b) => b.addEventListener('click', () => showTeam(b.dataset.team)));
   el.querySelector('#champ-select')?.addEventListener('change', (e) => {
     state.tableChamp = e.target.value;
     renderTable();
   });
 }
 
+// Filtro del calendario: 'mine' (la mia squadra), 'all' (tutte le partite)
+// oppure il nome esatto di una squadra.
+function calendarTeam() {
+  if (state.calFilter === 'all') return null;
+  if (state.calFilter === 'mine' || !teamOptions().includes(state.calFilter)) return myTeamName();
+  return state.calFilter;
+}
+
+function teamSummary(team) {
+  const champ = state.championships.find((c) => c.matches.some((m) => m.home === team || m.away === team));
+  const row = champ && computeStandings(champ.matches).find((r) => r.team === team);
+  if (!row) return '';
+  return `<div class="card stats">
+    <div><b>${row.pos}°</b><span>posizione</span></div>
+    <div><b>${row.points}</b><span>punti</span></div>
+    <div><b>${row.won}</b><span>vinte</span></div>
+    <div><b>${row.lost}</b><span>perse</span></div>
+  </div>`;
+}
+
 function renderCalendar() {
   const el = document.getElementById('view-calendar');
-  const matches = allMatches().filter((m) => state.calFilter === 'all' || isMine(m.home) || isMine(m.away));
-  const groups = new Map();
-  for (const m of matches) {
-    const key = `${m.champ.id}|${m.phase === 'Ritorno' ? 1 : 0}|${String(m.round).padStart(2, '0')}`;
-    if (!groups.has(key)) groups.set(key, { title: `${m.phase || ''} · giornata ${m.round ?? '?'}`, champ: m.champ.title, list: [] });
-    groups.get(key).list.push(m);
-  }
-  const keys = [...groups.keys()].sort();
-  el.innerHTML = `
-    <div class="seg" role="group" aria-label="Filtro partite">
-      <button data-f="mine" aria-pressed="${state.calFilter === 'mine'}">Solo ${esc(myTeamName())}</button>
-      <button data-f="all" aria-pressed="${state.calFilter === 'all'}">Tutte le partite</button>
-    </div>
-    ${keys.map((k) => {
+  const team = calendarTeam();
+  const mineName = myTeamName();
+  const others = teamOptions().filter((t) => t !== mineName);
+  const select = `
+    <label class="field">
+      <span>Squadra</span>
+      <select id="cal-team" aria-label="Mostra le partite di">
+        <option value="mine" ${team === mineName ? 'selected' : ''}>⚡ ${esc(mineName)}</option>
+        <option value="all" ${team === null ? 'selected' : ''}>Tutte le partite</option>
+        <optgroup label="Altre squadre">
+          ${others.map((t) => `<option value="${esc(t)}" ${t === team ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </optgroup>
+      </select>
+    </label>`;
+
+  let body;
+  if (team === null) {
+    // Tutte le partite, raggruppate per giornata.
+    const groups = new Map();
+    for (const m of allMatches()) {
+      const key = `${m.champ.id}|${m.phase === 'Ritorno' ? 1 : 0}|${String(m.round).padStart(2, '0')}`;
+      if (!groups.has(key)) groups.set(key, { title: `${m.phase || ''} · giornata ${m.round ?? '?'}`, champ: m.champ.title, list: [] });
+      groups.get(key).list.push(m);
+    }
+    body = [...groups.keys()].sort().map((k) => {
       const g = groups.get(k);
       return `<h2>${esc(g.title)}${state.championships.length > 1 ? ` · ${esc(g.champ)}` : ''}</h2>
-        <div class="card list">${g.list.sort(sortByDate).map((m) => matchRow(m, { highlight: state.calFilter === 'all' })).join('')}</div>`;
-    }).join('') || '<div class="card empty">Nessuna partita.</div>'}`;
+        <div class="card list">${g.list.sort(sortByDate).map((m) => matchRow(m)).join('')}</div>`;
+    }).join('');
+  } else {
+    // Una squadra: riepilogo, prossime partite e risultati.
+    const focus = (name) => name === team;
+    const list = allMatches().filter((m) => focus(m.home) || focus(m.away)).sort(sortByDate);
+    const limit = Date.now() - 3 * 36e5;
+    const next = list.filter((m) => !played(m) && when(m).getTime() >= limit);
+    const pending = list.filter((m) => !played(m) && when(m).getTime() < limit);
+    const done = list.filter(played).reverse();
+    const row = (m) => matchRow(m, { highlight: false, focus });
+    body = teamSummary(team) +
+      (next.length ? `<h2>Prossime (${next.length})</h2><div class="card list">${next.map(row).join('')}</div>` : '') +
+      (pending.length ? `<h2>In attesa di risultato</h2><div class="card list">${pending.map(row).join('')}</div>` : '') +
+      (done.length ? `<h2>Risultati (${done.length})</h2><div class="card list">${done.map(row).join('')}</div>` : '');
+  }
 
-  el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
-    state.calFilter = b.dataset.f;
+  el.innerHTML = select + (body || '<div class="card empty">Nessuna partita.</div>');
+  el.querySelector('#cal-team').addEventListener('change', (e) => {
+    state.calFilter = e.target.value;
     saveStore();
     renderCalendar();
-  }));
+    window.scrollTo(0, 0);
+  });
+}
+
+function showTeam(team) {
+  state.calFilter = team === myTeamName() ? 'mine' : team;
+  saveStore();
+  renderCalendar();
+  showTab('calendar');
 }
 
 function renderUpdate() {

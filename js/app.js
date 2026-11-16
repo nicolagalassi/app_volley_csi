@@ -5,6 +5,7 @@ import { extractItems } from './pdf-extract.js';
 // Pagina del CSI da cui scaricare il PDF aggiornato (campionato della Fulgur).
 const CSI_URL = 'https://live.centrosportivoitaliano.it/26/Pallavolo/Emilia-Romagna/Faenza/C36804/?j=NEU9REhMJjRGPWNpYiY0Rz1HSkxESCY0SD1GTUZER0cmNEk9YjJyMCBadjU2MSBScHByeXlyMENuJjRMPUVGSCY0Mj1l';
 const STORE_KEY = 'volley-csi:v1';
+const APP_VERSION = '4 · colori Fulgur';
 const DEFAULT_TEAM = 'fulgur';
 const MONTHS = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 const DAYS = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
@@ -476,6 +477,8 @@ function renderUpdate() {
     </div>
     <p class="note">Puoi caricare i PDF di più campionati: le partite della tua squadra vengono raggruppate in un'unica lista.</p>
 
+    <p class="note">Versione app: ${APP_VERSION}</p>
+
     <h2>La mia squadra</h2>
     <div class="card pad">
       <select id="team-select" aria-label="La mia squadra">
@@ -644,8 +647,18 @@ async function init() {
 
   await checkSharedFile();
 
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    // Quando arriva una nuova versione dell'app, ricarica la pagina una volta.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .then((reg) => reg.update())
+      .catch(() => {});
   }
 }
 

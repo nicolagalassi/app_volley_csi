@@ -1,5 +1,5 @@
 // Service worker: funzionamento offline e ricezione dei PDF condivisi (Android).
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = [
   './',
@@ -19,7 +19,10 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' = scarica sempre dal server, mai dalla cache HTTP del browser.
+  e.waitUntil(caches.open(SHELL)
+    .then((c) => c.addAll(ASSETS.map((a) => new Request(a, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -51,9 +54,10 @@ self.addEventListener('fetch', (e) => {
 
   if (e.request.method !== 'GET') return;
 
-  // Rete prima (dati sempre aggiornati), cache se offline.
+  // Rete prima, chiedendo sempre al server se il file è cambiato (GitHub Pages
+  // altrimenti lascia al browser copie vecchie fino a 10 minuti); cache se offline.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

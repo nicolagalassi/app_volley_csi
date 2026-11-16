@@ -13,6 +13,8 @@ const ICON = {
   map: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>',
   cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   ext: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg>',
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
 
@@ -124,11 +126,14 @@ function matchRow(m, { highlight = true } = {}) {
 }
 
 // ---------- Calendar export (.ics) ----------
+const pad2 = (n) => String(n).padStart(2, '0');
+const icsStamp = (d) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}T${pad2(d.getHours())}${pad2(d.getMinutes())}00`;
+const escIcs = (s) => String(s).replace(/[\\;,]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
+const ICS_HEAD = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//app_volley_csi//IT', 'CALSCALE:GREGORIAN'];
+
 function icsFor(matches) {
-  const pad = (n) => String(n).padStart(2, '0');
-  const stamp = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
-  const escIcs = (s) => String(s).replace(/[\\;,]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//app_volley_csi//IT', 'CALSCALE:GREGORIAN'];
+  const stamp = icsStamp;
+  const lines = [...ICS_HEAD];
   for (const m of matches) {
     const start = when(m);
     const end = new Date(start.getTime() + 2 * 36e5);
@@ -148,6 +153,69 @@ function icsFor(matches) {
   lines.push('END:VCALENDAR');
   return lines.filter(Boolean).join('\r\n');
 }
+// Promemoria "aggiorna i risultati": la mattina dopo ogni partita della mia
+// squadra e dopo l'ultima partita di ogni giornata. Arrivano come notifica
+// dal calendario del telefono, anche ad app chiusa.
+export function reminderDates(matches, mineFn, now = new Date()) {
+  const days = new Set();
+  const lastOfRound = new Map();
+  for (const m of matches) {
+    if (mineFn(m.home) || mineFn(m.away)) days.add(m.date);
+    const k = `${m.champ?.id || ''}|${m.phase}|${m.round}`;
+    if (!lastOfRound.has(k) || m.date > lastOfRound.get(k)) lastOfRound.set(k, m.date);
+  }
+  for (const d of lastOfRound.values()) days.add(d);
+  return [...days].sort().map((d) => {
+    const x = new Date(`${d}T10:00:00`);
+    x.setDate(x.getDate() + 1);
+    return x;
+  }).filter((x) => x > now);
+}
+
+function remindersIcs(dates) {
+  const appUrl = location.href.split(/[?#]/)[0];
+  const lines = [...ICS_HEAD];
+  for (const d of dates) {
+    const end = new Date(d.getTime() + 15 * 6e4);
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:promemoria-${icsStamp(d)}@app-volley-csi`,
+      `DTSTAMP:${icsStamp(new Date())}`,
+      `DTSTART:${icsStamp(d)}`,
+      `DTEND:${icsStamp(end)}`,
+      `SUMMARY:${escIcs('🏐 Aggiorna risultati volley')}`,
+      `DESCRIPTION:${escIcs(`Scarica il PDF dal sito CSI e caricalo nell'app.\nSito CSI: ${CSI_URL}\nApp: ${appUrl}`)}`,
+      `URL:${appUrl}`,
+      'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escIcs('Aggiorna risultati volley')}`, 'TRIGGER:PT0M', 'END:VALARM',
+      'END:VEVENT',
+    );
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadReminders() {
+  const dates = reminderDates(allMatches(), isMine);
+  if (!dates.length) { toast('Nessuna partita futura in calendario', true); return; }
+  saveFile(remindersIcs(dates), 'promemoria-risultati.ics', 'text/calendar');
+  toast(`${dates.length} promemoria pronti: aprili con il calendario del telefono`);
+}
+
+// Partite (di tutto il campionato) già giocate ma ancora senza risultato.
+function missingResults() {
+  const limit = Date.now() - 3 * 36e5;
+  return allMatches().filter((m) => !played(m) && when(m).getTime() < limit).sort(sortByDate);
+}
+
+function saveFile(text, name, type) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function downloadIcs(matches, name) {
   const blob = new Blob([icsFor(matches)], { type: 'text/calendar' });
   const a = document.createElement('a');
@@ -171,6 +239,21 @@ function renderTeam() {
   const next = upcoming[0];
 
   let html = '';
+  const missing = missingResults();
+  if (missing.length) {
+    const last = when(missing[missing.length - 1]);
+    html += `
+      <div class="card banner">
+        <div class="banner-text">
+          <b>🔔 Risultati da aggiornare</b>
+          <span>${missing.length === 1 ? '1 partita giocata è' : `${missing.length} partite giocate sono`} ancora senza risultato (ultima: ${last.getDate()} ${MONTHS[last.getMonth()]}).</span>
+        </div>
+        <div class="actions">
+          <a class="btn primary" href="${CSI_URL}" target="_blank" rel="noopener">${ICON.ext} Apri campionato CSI</a>
+          <label class="btn">${ICON.up} Carica PDF<input type="file" accept="application/pdf,.pdf" hidden data-quick-upload></label>
+        </div>
+      </div>`;
+  }
   if (next) {
     const d = when(next);
     const v = venueOf(next);
@@ -219,6 +302,7 @@ function renderTeam() {
   }
   el.innerHTML = html;
 
+  el.querySelector('[data-quick-upload]')?.addEventListener('change', (e) => importFiles([...e.target.files]));
   el.querySelector('[data-ics="next"]')?.addEventListener('click', () => downloadIcs([next], 'prossima-partita.ics'));
   el.querySelector('[data-ics="all"]')?.addEventListener('click', () => downloadIcs(upcoming, 'partite-fulgur.ics'));
 }
@@ -293,12 +377,16 @@ function renderCalendar() {
 function renderUpdate() {
   const el = document.getElementById('view-update');
   el.innerHTML = `
+    <a class="card quick" href="${CSI_URL}" target="_blank" rel="noopener">
+      <span class="quick-icon">${ICON.ext}</span>
+      <span><b>Apri il nostro campionato sul sito CSI</b><small>Open Misto / Eccellenza · CSI Faenza</small></span>
+    </a>
+
     <h2>Aggiorna risultati e classifica</h2>
     <div class="card">
       <ol class="steps">
-        <li><b>Apri la pagina del campionato sul sito CSI</b>
-          <p>Si apre nel browser del telefono (il sito non permette all'app di leggerlo da sola).</p>
-          <a class="btn primary" href="${CSI_URL}" target="_blank" rel="noopener">${ICON.ext} Apri sito CSI</a></li>
+        <li><b>Apri il campionato sul sito CSI</b>
+          <p>Con il pulsante qui sopra o con <b>CSI</b> in alto: si apre nel browser del telefono (il sito non permette all'app di leggerlo da sola).</p></li>
         <li><b>Scarica il PDF del calendario</b>
           <p>Dalla pagina scarica il calendario in PDF: contiene già tutti i risultati e i set aggiornati.</p></li>
         <li><b>Caricalo qui</b>
@@ -309,6 +397,12 @@ function renderUpdate() {
             <span>oppure trascinalo qui</span>
           </label></li>
       </ol>
+    </div>
+
+    <h2>Promemoria</h2>
+    <div class="card pad">
+      <p class="note" style="padding:0 0 12px">Aggiunge al calendario del telefono un avviso alle 10:00 del giorno dopo ogni partita della squadra e dopo ogni giornata, con il link al sito CSI. Arriva anche ad app chiusa.</p>
+      <button class="btn primary" data-reminders>${ICON.bell} Aggiungi promemoria al calendario</button>
     </div>
 
     <h2>Campionati caricati</h2>
@@ -331,6 +425,7 @@ function renderUpdate() {
       </select>
     </div>`;
 
+  el.querySelector('[data-reminders]')?.addEventListener('click', downloadReminders);
   const input = el.querySelector('#file');
   input.addEventListener('change', () => importFiles([...input.files]));
   const drop = el.querySelector('#drop');
@@ -371,6 +466,13 @@ function renderAll() {
   document.getElementById('data-stamp').textContent = latest
     ? `Dati CSI del ${fmtStamp(latest)}`
     : 'Nessun dato: carica un calendario';
+  const csiLink = document.getElementById('csi-link');
+  if (csiLink) csiLink.href = CSI_URL;
+  const missing = missingResults().length;
+  try {
+    if (missing && navigator.setAppBadge) navigator.setAppBadge(missing).catch(() => {});
+    else if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  } catch { /* badge non supportato */ }
   renderTeam();
   renderTable();
   renderCalendar();
